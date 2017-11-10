@@ -1,0 +1,202 @@
+#!/bin/bash
+
+# Variables to be used in the configuration file
+_DOSH_KEYS="UNSAFEEXPAND CONF DEBUG RUNCOMMANDS VERBOSE CONTAINERIMAGE CONTAINERCOMMAND INHERIT DOCKERPARAMETERS"
+_DOSH_INHERITABLE="DOCKERPARAMETERS"
+
+# Functions to output information depending on the configuration
+function p_error() {
+  echo "[ERROR] $(date +%Y.%m.%d-%X) $@" >&2
+}
+
+function p_info() {
+  if [ "$VERBOSE" == "true" ]; then
+    echo "$(date +%Y.%m.%d-%X) $@"
+  fi
+}
+
+function p_debug() {
+  if [ "$DEBUG" == "true" ]; then
+    local TS="$(date +%Y.%m.%d-%X)"
+    while read L; do
+      echo "[DEBUG] $TS $L" >&2
+    done <<< "$@"
+  fi
+}
+
+# Checks whether a string is in the space-separated list or not
+function element_in_list() {
+  local ELEMENT="$1"
+  local LIST="$(echo "$2" | tr '\n' ' ')"
+
+  if [[ "$LIST" =~ (^|[[:blank:]]+)$ELEMENT([[:blank:]]+|$) ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# Checks whether a configuration key is in the list of valid configuration keys
+function valid_key() {
+  if element_in_list "$1" "$_DOSH_KEYS"; then return 0; else return 1; fi
+}
+
+# Checks whether a configuration key is in the list of inheritable configuration keys
+function inheritable() {
+  if element_in_list "$1" "$_DOSH_INHERITABLE"; then return 0; else return 1; fi
+}
+
+# Reads a configuration file and set its variables (removes comments, blank lines, trailing spaces, etc. and
+# then reads KEY=VALUE settings)
+function readconf() {
+  local _TXT_CONF APPLIES
+  local CONF_FILE=$1
+  local USER=$2
+  local GROUP=$3
+
+  # If the config file does not exist return failure
+  if [ ! -e "$CONF_FILE" ]; then
+    return 1
+  fi
+
+  # First we read the config file
+  _TXT_CONF="$(cat "$CONF_FILE" | sed 's/#.*//g' | sed 's/^[ \t]*//g' | sed 's/[ \t]*$//g' | sed '/^$/d')"
+
+  # The first section applies to current settings
+  APPLIES=true
+
+  # Let's read the lines
+  while read L; do
+
+    if [[ "$L" =~ ^\[.*\]$ ]]; then
+
+      # If we are reading a section, let's see if it is applicable to us
+      IFS=':' read SECTION OBJECT <<< "${L:1:-1}"
+      APPLIES=false
+      case "$SECTION" in
+        user) 
+          if [ "$USER" != "" -a "$OBJECT" == "$USER" ]; then APPLIES=true; fi;;
+        group) 
+          if [ "$GROUP" != "" -a "$OBJECT" == "$GROUP" ]; then APPLIES=true; fi;;
+        *)  p_error "ignoring the contents of the invalid section $L";;
+      esac
+    else
+
+      # If the current content applies to us, let's process it
+      if [ "$APPLIES" == "true" ]; then
+        IFS='=' read KEY VALUE <<< "$L"
+        # If it is a KEY=VALUE expression and the KEY is valid, we'll get its value
+        if valid_key "$KEY"; then
+          if [ "$UNSAFEEXPAND" == "true" ]; then
+            VALUE="$(eval echo "$VALUE")"
+          else
+            VALUE="$(echo "$VALUE" | envsubst)"
+          fi
+          if inheritable "$KEY" && [ "$INHERIT" == "true" ]; then
+            read -d '\0' "$KEY" <<< "${!KEY} ${VALUE}"
+          else
+            read -d '\0' "$KEY" <<< "${VALUE}"
+          fi
+        else
+          p_error "ignoring invalid key $KEY"
+        fi
+      fi
+    fi
+  done <<< "$_TXT_CONF"
+  return 0
+}
+
+# Reads a list of configuration files and repeats reading if the var CONF is changed
+# because it means that the user needs additional configuration files.
+function readconffiles() {
+  local CFILE _CONFFILES
+  _CONFFILES="$@"
+  for CFILE in $_CONFFILES; do
+    p_debug "reading configuration file $CFILE"
+    readconf "$CFILE" "$USER" ""
+  done
+  if [ "$CONF" != "$_CONFFILES" ]; then
+    readconffiles $CONF
+  fi
+}
+
+# Get the user that issued the command (even if ran from SUDO)
+if [ $SUDO_USER ]; then USERNAME=$SUDO_USER; else USERNAME="$(whoami)"; fi
+
+USER="$USERNAME"
+U_UID="$(id -u $USERNAME)"
+U_GID="$(id -g $USERNAME)"
+
+# Set the default values
+RUNCOMMANDS=true
+CONTAINERNAME="container-${USERNAME}"
+CONTAINERIMAGE="alpine"
+CONTAINERCOMMAND="ash"
+DOCKERPARAMETERS=
+INHERIT=true
+VERBOSE=false
+
+# Read the default configuration file
+readconffiles "/etc/dosh.conf"
+
+# Output variables for debug
+p_debug "Variables
+----------------------------------
+USER=$USERNAME
+CONF=$CONF
+CONTAINERNAME=$CONTAINERNAME
+CONTAINERIMAGE=$CONTAINERIMAGE
+CONTAINERCOMMAND=$CONTAINERCOMMAND
+DOCKERPARAMETERS=$DOCKERPARAMETERS
+INHERIT=$INHERIT
+RUNCOMMANDS=$RUNCOMMANDS
+VERBOSE=$VERBOSE"
+
+# Check if the container for the user is running
+RUNNING="$(docker inspect -f "{{.State.Running}}" "$CONTAINERNAME" 2> /dev/null)"
+if [ $? -ne 0 ]; then
+
+  # If it does not exist, we'll try to create it
+  p_debug "container $CONTAINERNAME does not exist"
+  p_debug "executing:" docker run -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND"
+  if [ "$RUNCOMMANDS" == "true" ]; then
+    docker run -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND" > /dev/null
+    if [ $? -ne 0 ]; then
+      p_error "failed to create container $CONTAINERNAME"
+      exit 1
+    fi
+  else
+    p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
+  fi
+  p_debug "container $CONTAINERNAME created"
+else
+
+  # If it exists, let's check if it is running
+  if [ "$RUNNING" == "false" ]; then
+
+    # If it is not running, we'll try to start it 
+    p_debug "container $CONTAINERNAME exists but is not running"
+    p_debug "executing:" docker start "$CONTAINERNAME"
+    if [ "$RUNCOMMANDS" == "true" ]; then
+      docker start "$CONTAINERNAME" > /dev/null
+      if [ $? -ne 0 ]; then
+        p_error "failed to start container"
+        exit 1
+      fi
+    else
+      p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
+    fi
+    p_debug "container $CONTAINERNAME started"
+  fi
+fi
+
+# Finally we enter in the container
+p_debug "executing: docker exec -it" "$CONTAINERNAME" "$CONTAINERCOMMAND"
+if [ "$RUNCOMMANDS" == "true" ]; then
+  docker exec -it "$CONTAINERNAME" "$CONTAINERCOMMAND"
+  if [ $? -ne 0 ]; then
+    p_error "failed to enter in container $CONTAINERNAME"
+    exit 1
+  fi
+else
+  p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
+fi

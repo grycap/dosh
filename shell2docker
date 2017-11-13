@@ -193,10 +193,10 @@ fi
 p_debug "executing: docker exec -it" "$CONTAINERNAME" "$CONTAINERCOMMAND"
 if [ "$RUNCOMMANDS" == "true" ]; then
   docker exec -it "$CONTAINERNAME" "$CONTAINERCOMMAND"
-  if [ $? -ne 0 ]; then
-    p_error "failed to enter in container $CONTAINERNAME"
-    exit 1
-  fi
+  # if [ $? -ne 0 ]; then
+  #  p_error "failed to enter in container $CONTAINERNAME"
+  #  exit 1
+  # fi
 else
   p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
 fi

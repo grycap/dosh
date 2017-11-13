@@ -18,10 +18,7 @@ mkdir -p "${FNAME}/etc/sudoers.d"
 
 cp $SRCFOLDER/dosh $SRCFOLDER/shell2docker "${FNAME}/bin/"
 cp $SRCFOLDER/dosh.conf "${FNAME}/etc/"
-
-cat > "${FNAME}/etc/sudoers.d/dosh" <<\EOF
-ALL ALL=NOPASSWD: /bin/dockershell
-EOF
+cp $SRCFOLDER/dosh.sudoers "${FNAME}/etc/sudoers.d/dosh"
 
 cat > "${FNAME}/DEBIAN/control" << EOF
 Package: dosh
@@ -50,9 +47,21 @@ chmod 600 /etc/dosh.conf
 chmod -R 700 /etc/dosh/
 chown root:root /bin/dosh /bin/shell2docker
 chmod 755 /bin/dosh /bin/shell2docker
+if [ -e /etc/shells ]; then
+  sed -i /etc/shells '/^\/bin\/dosh$/d'
+fi
+echo '/bin/dosh' >> /etc/shells
+EOF
+
+cat > "${FNAME}/DEBIAN/postrm" <<\EOF
+#!/bin/sh
+if [ -e /etc/shells ]; then
+  sed -i /etc/shells '/^\/bin\/dosh$/d'
+fi
 EOF
 
 chmod +x "${FNAME}/DEBIAN/postinst"
+chmod +x "${FNAME}/DEBIAN/postrm"
 
 cat > "${FNAME}/DEBIAN/conffiles" <<\EOF
 /etc/sudoers.d/dosh

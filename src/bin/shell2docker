@@ -1,17 +1,32 @@
 #!/bin/bash
 
 # Variables to be used in the configuration file
-_DOSH_KEYS="UNSAFEEXPAND CONF DEBUG RUNCOMMANDS VERBOSE CONTAINERIMAGE CONTAINERCOMMAND INHERIT DOCKERPARAMETERS"
+_DOSH_KEYS="SCRIPTSFOLDER RUNSCRIPTS LOGFILE UNSAFEEXPAND CONF DEBUG RUNCOMMANDS VERBOSE CONTAINERIMAGE CONTAINERCOMMAND INHERIT DOCKERPARAMETERS"
 _DOSH_INHERITABLE="DOCKERPARAMETERS"
 
 # Functions to output information depending on the configuration
+function p_errfile() {
+  if [ "$LOGFILE" == "" ]; then
+    echo "$@" >&2
+  else
+    touch -f "$LOGFILE"
+    if [ $? -eq 0 ]; then
+      echo "$@" >> "$LOGFILE"
+    fi
+  fi
+}
+
 function p_error() {
-  echo "[ERROR] $(date +%Y.%m.%d-%X) $@" >&2
+  local O_STR="[ERROR] $(date +%Y.%m.%d-%X) $@"
+  p_errfile "$O_STR"
 }
 
 function p_info() {
   if [ "$VERBOSE" == "true" ]; then
-    echo "$(date +%Y.%m.%d-%X) $@"
+    local TS="$(date +%Y.%m.%d-%X)"
+    while read L; do
+      p_errfile "[INFO] $TS $@"
+    done <<< "$@"
   fi
 }
 
@@ -19,7 +34,7 @@ function p_debug() {
   if [ "$DEBUG" == "true" ]; then
     local TS="$(date +%Y.%m.%d-%X)"
     while read L; do
-      echo "[DEBUG] $TS $L" >&2
+      p_errfile "[DEBUG] $TS $L"
     done <<< "$@"
   fi
 }
@@ -50,8 +65,9 @@ function inheritable() {
 function readconf() {
   local _TXT_CONF APPLIES
   local CONF_FILE=$1
-  local USER=$2
-  local GROUP=$3
+  local INSECTION=false
+
+  p_debug "User for the configuration $USER group: $GROUP, groups: $GROUPS"
 
   # If the config file does not exist return failure
   if [ ! -e "$CONF_FILE" ]; then
@@ -68,6 +84,7 @@ function readconf() {
   while read L; do
 
     if [[ "$L" =~ ^\[.*\]$ ]]; then
+      INSECTION=true
 
       # If we are reading a section, let's see if it is applicable to us
       IFS=':' read SECTION OBJECT <<< "${L:1:-1}"
@@ -76,7 +93,9 @@ function readconf() {
         user) 
           if [ "$USER" != "" -a "$OBJECT" == "$USER" ]; then APPLIES=true; fi;;
         group) 
-          if [ "$GROUP" != "" -a "$OBJECT" == "$GROUP" ]; then APPLIES=true; fi;;
+          if element_in_list "$GROUP" "$GROUPNAMES"; then
+            APPLIES=true
+          fi;;
         *)  p_error "ignoring the contents of the invalid section $L";;
       esac
     else
@@ -119,12 +138,37 @@ function readconffiles() {
   fi
 }
 
+function callscripts() {
+  local L_FILES
+  local E RESULT RETVAL
+  if [ "$SCRIPTSFOLDER" != "" ]; then
+    if [ -d "$SCRIPTSFOLDER" ]; then
+      L_FILES="$(find "$SCRIPTSFOLDER" -type f -executable | xargs ls)"
+      for E in $L_FILES; do
+        RESULT="$($E $@ 2>&1)"
+        L_P=("$@")
+        p_debug "$(printf "command %s %s\nretval: %s\noutput: %s" "$E" "${L_P[*]}" "$?" "$RESULT")"
+      done
+    else
+      p_debug "folder $SCRIPTSFOLDER does not exist"
+      return 1
+    fi
+  fi
+}
+
 # Get the user that issued the command (even if ran from SUDO)
 if [ $SUDO_USER ]; then USERNAME=$SUDO_USER; else USERNAME="$(whoami)"; fi
 
 USER="$USERNAME"
 U_UID="$(id -u $USERNAME)"
 U_GID="$(id -g $USERNAME)"
+GROUPNAMES=
+for GROUP in $(id -G $USERNAME); do
+  GROUP="$(getent group $GROUP | cut -d: -f1)"
+  GROUPNAMES="${GROUPNAMES}${GROUP} "
+done
+GROUPNAMES="${GROUPNAMES::-1}"
+GROUP="$(getent group $U_GID | cut -d: -f1)"
 
 # Set the default values
 RUNCOMMANDS=true
@@ -134,6 +178,9 @@ CONTAINERCOMMAND="ash"
 DOCKERPARAMETERS=
 INHERIT=true
 VERBOSE=false
+SCRIPTSFOLDER=/etc/dosh/scripts
+LOGFILE=/var/log/dosh.log
+RUNSCRIPTS=false
 
 # Read the default configuration file
 readconffiles "/etc/dosh.conf"
@@ -142,6 +189,8 @@ readconffiles "/etc/dosh.conf"
 p_debug "Variables
 ----------------------------------
 USER=$USERNAME
+GROUP=$GROUP
+GROUPNAMES=$GROUPNAMES
 CONF=$CONF
 CONTAINERNAME=$CONTAINERNAME
 CONTAINERIMAGE=$CONTAINERIMAGE
@@ -149,7 +198,10 @@ CONTAINERCOMMAND=$CONTAINERCOMMAND
 DOCKERPARAMETERS=$DOCKERPARAMETERS
 INHERIT=$INHERIT
 RUNCOMMANDS=$RUNCOMMANDS
-VERBOSE=$VERBOSE"
+VERBOSE=$VERBOSE
+SCRIPTSFOLDER=$SCRIPTSFOLDER
+LOGFILE=$LOGFILE
+RUNSCRIPTS=$RUNSCRIPTS"
 
 # Check if the container for the user is running
 RUNNING="$(docker inspect -f "{{.State.Running}}" "$CONTAINERNAME" 2> /dev/null)"
@@ -159,10 +211,13 @@ if [ $? -ne 0 ]; then
   p_debug "container $CONTAINERNAME does not exist"
   p_debug "executing:" docker run -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND"
   if [ "$RUNCOMMANDS" == "true" ]; then
-    docker run -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND" > /dev/null
+    callscripts prerun "$CONTAINERDID" -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND"
+    CONTAINERDID=$(docker run -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND" 2>&1)
     if [ $? -ne 0 ]; then
       p_error "failed to create container $CONTAINERNAME"
       exit 1
+    else
+      callscripts run "$CONTAINERDID" -h "$(hostname)" -u $U_UID:$U_GID $DOCKERPARAMETERS -id --name "$CONTAINERNAME" "$CONTAINERIMAGE" "$CONTAINERCOMMAND"
     fi
   else
     p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
@@ -177,10 +232,13 @@ else
     p_debug "container $CONTAINERNAME exists but is not running"
     p_debug "executing:" docker start "$CONTAINERNAME"
     if [ "$RUNCOMMANDS" == "true" ]; then
+      callscripts prestart "$CONTAINERNAME"    
       docker start "$CONTAINERNAME" > /dev/null
       if [ $? -ne 0 ]; then
         p_error "failed to start container"
         exit 1
+      else
+        callscripts start "$CONTAINERNAME"    
       fi
     else
       p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
@@ -192,11 +250,9 @@ fi
 # Finally we enter in the container
 p_debug "executing: docker exec -it" "$CONTAINERNAME" "$CONTAINERCOMMAND"
 if [ "$RUNCOMMANDS" == "true" ]; then
+  callscripts preexec "$CONTAINERNAME" "$CONTAINERCOMMAND"
   docker exec -it "$CONTAINERNAME" "$CONTAINERCOMMAND"
-  # if [ $? -ne 0 ]; then
-  #  p_error "failed to enter in container $CONTAINERNAME"
-  #  exit 1
-  # fi
+  callscripts exec "$CONTAINERNAME" "$CONTAINERCOMMAND"
 else
   p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
 fi

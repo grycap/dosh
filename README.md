@@ -68,11 +68,11 @@ $ git clone https://github.com/grycap/dosh
 The binary scripts must be copied to the ```/bin``` folder, the main configuration file to ```/etc``` and the file ```dosh.sudoers``` to the folder ```/etc/sudoers.d```
 
 ```bash
-$ cd dosh
-$ cp dosh shell2docker /bin
-$ cp dosh.conf /etc
+$ cd dosh/src
+$ cp bin/dosh bin/shell2docker /bin
+$ cp etc/dosh.conf /etc
 $ mkdir -p /etc/sudoers.d
-$ cp dosh.sudoers /etc/sudoers.d/dosh
+$ cp etc/dosh.sudoers /etc/sudoers.d/dosh
 ```
 
 Please, take a look at file ```dosh.sudoers``` and get comfortable with it, because this is the key for DoSH to work. It simply allows any user to run the file ```shell2docker``` as root without password. And ```shell2docker``` will create the commandline to run the docker containers, but will also force the container to be run using the user's credentials.

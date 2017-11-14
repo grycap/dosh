@@ -4,29 +4,30 @@ SRCFOLDER=$1
 if [ "$SRCFOLDER" == "" ]; then
   SRCFOLDER="."
 fi
-
 VERSION=$(cat "$SRCFOLDER/version")
 if [ $? -ne 0 ]; then
   echo "could not find the version for the package"
   exit 1
 fi
+REVISION=${VERSION##*-}
+VERSION=${VERSION%%-*}
 
-FNAME=dosh_${VERSION}
+FNAME=build/dosh_${VERSION}-${REVISION}
 mkdir -p "${FNAME}/bin"
 mkdir -p "${FNAME}/DEBIAN"
 mkdir -p "${FNAME}/etc/sudoers.d"
 
-cp $SRCFOLDER/dosh $SRCFOLDER/shell2docker "${FNAME}/bin/"
-cp $SRCFOLDER/dosh.conf "${FNAME}/etc/"
-cp $SRCFOLDER/dosh.sudoers "${FNAME}/etc/sudoers.d/dosh"
+cp $SRCFOLDER/bin/dosh $SRCFOLDER/bin/shell2docker "${FNAME}/bin/"
+cp $SRCFOLDER/etc/dosh.conf "${FNAME}/etc/"
+cp $SRCFOLDER/etc/dosh.sudoers "${FNAME}/etc/sudoers.d/dosh"
 
 cat > "${FNAME}/DEBIAN/control" << EOF
 Package: dosh
-Version: $VERSION
+Version: ${VERSION}-${REVISION}
 Section: base
 Priority: optional
 Architecture: all
-Depends: sudo (>=1.8), gettext, bash
+Depends: sudo (>=1.8), gettext, bash, libc-bin, coreutils, docker-engine | docker.io
 Maintainer: Carlos A. <caralla@upv.es>
 Description: DoSH - Docker SHell
  use Docker containers to run the shell of the users in your Linux system.
@@ -40,15 +41,21 @@ EOF
 cat > "${FNAME}/DEBIAN/postinst" <<\EOF
 #!/bin/sh
 mkdir -p /etc/dosh/conf.d
+mkdir -p /etc/dosh/scripts
 chown root:root /etc/sudoers.d/dosh /etc/dosh.conf
-chown -R root:root /etc/dosh/conf.d
+chown -R root:root /etc/dosh
 chmod 400 /etc/sudoers.d/dosh
 chmod 600 /etc/dosh.conf
 chmod -R 700 /etc/dosh/
 chown root:root /bin/dosh /bin/shell2docker
 chmod 755 /bin/dosh /bin/shell2docker
+if [ ! -f /var/log/dosh.log ]; then
+  touch /var/log/dosh.log
+  chown root:root /var/log/dosh.log
+  chmod 600 /var/log/dosh.log
+fi
 if [ -e /etc/shells ]; then
-  sed -i /etc/shells '/^\/bin\/dosh$/d'
+  sed -i '/^\/bin\/dosh$/d' /etc/shells
 fi
 echo '/bin/dosh' >> /etc/shells
 EOF
@@ -56,7 +63,7 @@ EOF
 cat > "${FNAME}/DEBIAN/postrm" <<\EOF
 #!/bin/sh
 if [ -e /etc/shells ]; then
-  sed -i /etc/shells '/^\/bin\/dosh$/d'
+  sed -i '/^\/bin\/dosh$/d' /etc/shells
 fi
 EOF
 

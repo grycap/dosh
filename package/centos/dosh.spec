@@ -31,8 +31,9 @@ mkdir -p $RPM_BUILD_ROOT/etc/dosh/conf.d
 mkdir -p $RPM_BUILD_ROOT/etc/sudoers.d
 mkdir -p $RPM_BUILD_ROOT/bin/
 mkdir -p $RPM_BUILD_ROOT/var/log
-install -m 0600 -d $RPM_BUILD_ROOT/etc/dosh/scripts
-install -m 0600 -d $RPM_BUILD_ROOT/etc/dosh/conf.d
+install -m 0700 -d $RPM_BUILD_ROOT/etc/dosh/scripts
+install -m 0700 etc/scripts/* $RPM_BUILD_ROOT/etc/dosh/scripts
+install -m 0700 -d $RPM_BUILD_ROOT/etc/dosh/conf.d
 install -m 0600 etc/dosh.conf $RPM_BUILD_ROOT/etc
 install -m 0600 etc/dosh.sudoers $RPM_BUILD_ROOT/etc/sudoers.d/dosh
 install -m 0755 bin/dosh $RPM_BUILD_ROOT/bin

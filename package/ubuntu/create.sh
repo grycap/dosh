@@ -1,4 +1,23 @@
 #!/bin/bash
+#
+# DoSH - Docker SHell
+# https://github.com/grycap/dosh
+#
+# Copyright (C) GRyCAP - I3M - UPV 
+# Developed by Carlos A. caralla@upv.es
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
 
 SRCFOLDER=$1
 if [ "$SRCFOLDER" == "" ]; then
@@ -16,10 +35,18 @@ FNAME=build/dosh_${VERSION}-${REVISION}
 mkdir -p "${FNAME}/bin"
 mkdir -p "${FNAME}/DEBIAN"
 mkdir -p "${FNAME}/etc/sudoers.d"
+mkdir -p "${FNAME}/etc/dosh/scripts"
 
 cp $SRCFOLDER/bin/dosh $SRCFOLDER/bin/shell2docker "${FNAME}/bin/"
+chmod 755 ${FNAME}/bin/*
 cp $SRCFOLDER/etc/dosh.conf "${FNAME}/etc/"
+cp $SRCFOLDER/etc/scripts/* "${FNAME}/etc/dosh/scripts/"
+chmod -x "${FNAME}/etc/dosh/scripts/"
+mkdir -p "${FNAME}/etc/dosh/conf.d/"
 cp $SRCFOLDER/etc/dosh.sudoers "${FNAME}/etc/sudoers.d/dosh"
+chmod 400 "${FNAME}/etc/sudoers.d/dosh"
+chmod 700 "${FNAME}/etc/dosh" "${FNAME}/etc/dosh/scripts" "${FNAME}/etc/dosh/conf.d"
+chmod 600 "${FNAME}/etc/dosh.conf"
 
 cat > "${FNAME}/DEBIAN/control" << EOF
 Package: dosh
@@ -40,15 +67,6 @@ EOF
 
 cat > "${FNAME}/DEBIAN/postinst" <<\EOF
 #!/bin/sh
-mkdir -p /etc/dosh/conf.d
-mkdir -p /etc/dosh/scripts
-chown root:root /etc/sudoers.d/dosh /etc/dosh.conf
-chown -R root:root /etc/dosh
-chmod 400 /etc/sudoers.d/dosh
-chmod 600 /etc/dosh.conf
-chmod -R 700 /etc/dosh/
-chown root:root /bin/dosh /bin/shell2docker
-chmod 755 /bin/dosh /bin/shell2docker
 if [ ! -f /var/log/dosh.log ]; then
   touch /var/log/dosh.log
   chown root:root /var/log/dosh.log
@@ -79,4 +97,4 @@ cd "${FNAME}"
 find . -type f ! -regex '.*.hg.*' ! -regex '.*?debian-binary.*' ! -regex '.*?DEBIAN.*' -printf "%P " | xargs md5sum > "DEBIAN/md5sums"
 cd -
 
-dpkg-deb --build "${FNAME}"
+fakeroot dpkg-deb --build "${FNAME}"

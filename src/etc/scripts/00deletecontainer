@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+# DoSH - Docker SHell
+# https://github.com/grycap/dosh
+#
+# Copyright (C) GRyCAP - I3M - UPV 
+# Developed by Carlos A. caralla@upv.es
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+#
+# -------------------------------------------------------------------------
+#
+# This script deletes the container if there are not other running processes
+#  when the user gets out from the container (it is guessed to be idle).
+#
+
+COMMAND=$1
+CONTAINER=$2
+shift
+shift
+
+case "$COMMAND" in
+  prerun)
+    ;;
+  run)
+    ;;
+  prestart) 
+    ;;
+  start) 
+    ;;
+  preexec) 
+    ;;
+  exec)
+    COMMANDS="$(docker exec $CONTAINER ps -e -o comm | grep -v ps | tail -n +2)"
+    SHCMD="$(basename $1)"
+    SHCOUNT="$(echo "$COMMANDS" | grep "$SHCMD" | wc -l)"
+    OTHCOUNT="$(echo "$COMMANDS" | grep -v "$SHCMD" | wc -l)"
+    if [ "$SHCOUNT" -eq 1 -a "$OTHCOUNT" -eq 0 ]; then
+      docker stop "$CONTAINER" && docker rm "$CONTAINER"
+    fi
+    ;;
+  *)
+    echo "unexpected command" >&2
+    ;;
+esac

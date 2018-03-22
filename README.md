@@ -31,7 +31,11 @@ And once you exit the container, you will have a new root user in the physical h
 
 This happens because the user inside the container is "root" that has UID=0, and it is root because the Docker daemon is root with UID=0.
 
-The actual problem is that the user needs to be allowed to use Docker to spawn the DoSH container, but you do not want to allow the user to run arbitraty docker commands. In the case of DoSH it is _bypassed_ by allowing the users to run the command that spawn the container as root (by using ```sudo```), but not allowing the users to directly create the containers. Moreover, the container is forced to be spawned with the credentials of the end-user (thus granting him with the actual permissions in the system). You can find more details [in this link](https://ilearnedhowto.wordpress.com/2017/11/10/how-to-securely-contain-users-using-docker-containers/). 
+The actual problem is that the user needs to be allowed to use Docker to spawn the DoSH container, but you do not want to allow the user to run arbitraty docker commands. In the case of DoSH it is _bypassed_ by allowing the users to run the command that spawn the container as root (by using ```sudo```), but not allowing the users to directly create the containers. Moreover, the container is forced to be spawned with the credentials of the end-user (thus granting him with the actual permissions in the system). 
+
+In case that you want even more security, you can add the flag `--cap-grop=all` (or selective cap-drop) to the sequence of running the Docker container. Then you will get an _even more secure container_ that will never get some linux capabilities (e.g. to mount a device). You can learn more on capabilities in the linux manpage (`man capabilities`). 
+
+You can check how the capabilities affect to the security of your processes in [the appendix](#appendix-on-capabilities).
 
 ## 2. Installation
 
@@ -281,3 +285,36 @@ Finally, you need to include a section for the 'datanet' group, setting the SCRI
 SCRIPTSFOLDER=/etc/dosh/scripts/net
 RUNSCRIPTS=true
 ```
+
+# Appendix: On capabilities
+**TL;DR:** You can find more details on secure Docker containers and the basis for this project [in this link](https://ilearnedhowto.wordpress.com/2017/11/10/how-to-securely-contain-users-using-docker-containers/).
+
+We can verify the capabilities of one process by running the next command:
+
+```console
+$ docker run --rm --cap-drop=all -u 1001:1001 -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro -v /home/myuser:/home/myuser -v /tmp:/tmp -w /home/myuser -it alpine sleep 10000
+```
+
+In other term, you can check the capabilities of that process
+
+![Verifying the capabilities in the container](img/capabilities-zero.png)
+
+We have to check the effective capabilities (CapEff) but also the upper bound of the capabilities (CapBnd) which determines which capabilities could the process acquire (e.g. using `sudo` o `suid` applications). We can see that boths capabilities are zero, and that means that the process cannot get any capability.
+
+Take into account that using  `--capdrop=all` will make that commands such as ping do not work even having access to the network. This is because it is an application that needs specific capabilities (in the case of ping, it needs `cap_net_raw`, and this is why it has `suid` permissions):
+
+![Ping cannot work using `--capdrop=all`](img/capabilities-capdrop.png)
+
+Dropping capabilities when spawning the containe makes that the commands inside the DoSH container is even more secure than the regular one. You can check it by simply repeating the same procedure but not using the containers:
+
+```console
+$ sleep 10000
+```
+
+In such case, if you inspect the capabilities, you will find the next thing:
+
+![Capabilities of a standard process](img/capabilities-all.png)
+
+That means that a user could take profit from privilege escalation, as he would be able to get up to **any** capability in the system.
+
+In order to learn more on capabilities, you can _play_ with the command `capsh` to spawn a `/bin/bash` application with modified capabilities.

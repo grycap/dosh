@@ -54,7 +54,7 @@ Version: ${VERSION}-${REVISION}
 Section: base
 Priority: optional
 Architecture: all
-Depends: sudo (>=1.8), gettext, bash, libc-bin, coreutils, docker-engine | docker.io
+Depends: sudo (>=1.8), gettext, bash, libc-bin, coreutils, docker-engine | docker.io | docker-ce
 Maintainer: Carlos A. <caralla@upv.es>
 Description: DoSH - Docker SHell
  use Docker containers to run the shell of the users in your Linux system.

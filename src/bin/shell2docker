@@ -267,11 +267,18 @@ else
 fi
 
 # Finally we enter in the container
-p_debug "executing: docker exec -it" "$CONTAINERNAME" "$CONTAINERCOMMAND"
+TERMFLAGS=
+if [ "$TERM" != "dumb" -a "$TERM" != "unknown" ]; then
+  p_debug "need to allocate terminal because TERM=$TERM"
+  TERMFLAGS=-t
+fi
+
+CONTAINERCOMMAND=( "$CONTAINERCOMMAND" "$@" )
 if [ "$RUNCOMMANDS" == "true" ]; then
-  callscripts preexec "$CONTAINERNAME" "$CONTAINERCOMMAND"
-  docker exec -it "$CONTAINERNAME" "$CONTAINERCOMMAND"
-  callscripts exec "$CONTAINERNAME" "$CONTAINERCOMMAND"
+  callscripts preexec "$CONTAINERNAME" "${CONTAINERCOMMAND[@]}"
+  p_debug "executing: docker exec $TERMFLAGS $CONTAINERNAME ${CONTAINERCOMMAND[@]}"
+  docker exec -i $TERMFLAGS "$CONTAINERNAME" "${CONTAINERCOMMAND[@]}"
+  callscripts exec "$CONTAINERNAME" "${CONTAINERCOMMAND[@]}"
 else
   p_info "docker commands are not being run because of configuration (var RUNCOMMANDS is not set to true)"
 fi

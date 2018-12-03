@@ -19,7 +19,7 @@
 # limitations under the License.
 
 # Variables to be used in the configuration file
-_DOSH_KEYS="SCRIPTSFOLDER RUNSCRIPTS LOGFILE UNSAFEEXPAND CONF DEBUG RUNCOMMANDS VERBOSE CONTAINERIMAGE CONTAINERCOMMAND INHERIT DOCKERPARAMETERS"
+_DOSH_KEYS="SCRIPTSFOLDER RUNSCRIPTS LOGFILE UNSAFEEXPAND CONF DEBUG RUNCOMMANDS VERBOSE CONTAINERIMAGE CONTAINERCOMMAND INHERIT DOCKERPARAMETERS PREFIXNAME"
 _DOSH_INHERITABLE="DOCKERPARAMETERS"
 
 # Functions to output information depending on the configuration
@@ -191,7 +191,6 @@ GROUP="$(getent group $U_GID | cut -d: -f1)"
 
 # Set the default values
 RUNCOMMANDS=true
-CONTAINERNAME="container-${USERNAME}"
 CONTAINERIMAGE="alpine"
 CONTAINERCOMMAND="ash"
 DOCKERPARAMETERS=
@@ -203,6 +202,9 @@ RUNSCRIPTS=false
 
 # Read the default configuration file
 readconffiles "/etc/dosh.conf"
+
+# Set the name of the container for the user
+CONTAINERNAME="${PREFIXNAME:-dosh-}${USERNAME}"
 
 # Output variables for debug
 p_debug "Variables
